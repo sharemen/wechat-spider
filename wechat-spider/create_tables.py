@@ -49,6 +49,9 @@ def create_table():
       `article_url` varchar(255) DEFAULT NULL,
       `state` int(11) DEFAULT '0' COMMENT '文章抓取状态，0 待抓取 2 抓取中 1 抓取完毕 -1 抓取失败',
       `__biz` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+      `creat_time` datetime DEFAULT NULL COMMENT '任务创建时间',
+      `handle_count` int(11) DEFAULT '0' COMMENT '处理次数',
+      `last_spider_time` datetime DEFAULT NULL COMMENT '最后抓取时间',
       PRIMARY KEY (`id`),
       UNIQUE KEY `sn` (`sn`) USING BTREE,
       KEY `state` (`state`) USING BTREE

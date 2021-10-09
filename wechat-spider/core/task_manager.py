@@ -7,13 +7,14 @@ Created on 2019/5/15 11:14 PM
 @author:
 '''
 
+
 from db.mysqldb import MysqlDB
 from db.redisdb import RedisDB
 import utils.tools as tools
 from utils.log import log
 import random
 from config import config
-
+import datetime
 
 class TaskManager():
     IS_IN_TIME_RANGE = 1  # 在时间范围
@@ -39,6 +40,10 @@ class TaskManager():
         self._spider_interval_max = config.get('spider').get('spider_interval').get('max_sleep_time')
         self._spider_interval_max = config.get('spider').get('spider_interval').get('max_sleep_time')
         self._crawl_time_range = (config.get("spider").get("crawl_time_range") or "~").split('~')
+        self._handle_hours = config.get('spider').get('handle_hours')
+        self._handle_max_count = config.get('spider').get('handle_max_count')
+        self._handle_interval_min = config.get('spider').get('handle_interval_min')
+        self._sleep_24h = config.get('spider').get('sleep_24h')
 
     def __get_task_from_redis(self, key):
         task = self._redis.zget(key, is_pop=True)
@@ -78,7 +83,17 @@ class TaskManager():
                     OR (last_spider_time IS NULL)
                 )
                 '''.format(monitor_interval=self._monitor_interval, publish_time_condition=publish_time_condition)
-
+            """
+            AND (
+                    (
+                        (
+                            UNIX_TIMESTAMP(CURRENT_TIMESTAMP) - UNIX_TIMESTAMP(last_spider_time)
+                        ) > {monitor_interval}
+                        {publish_time_condition}
+                    )
+                    OR (last_spider_time IS NULL)
+                )
+            """
             tasks = self._mysqldb.find(sql, to_json=True)
             if tasks:
                 self._redis.zadd(self._account_task_key, tasks)
@@ -86,6 +101,7 @@ class TaskManager():
 
         return task
 
+    @property
     def get_article_task(self):
         """
         获取文章任务
@@ -95,6 +111,7 @@ class TaskManager():
             None
         """
         task = self.__get_task_from_redis(self._article_task_key)
+        #缓存没有，从数据库获取
         if not task:
             sql = 'select id, article_url from wechat_article_task where state = 0 limit 5000'
             tasks = self._mysqldb.find(sql)
@@ -103,10 +120,22 @@ class TaskManager():
                 task_ids = str(tuple([task[0] for task in tasks])).replace(',)', ')')
                 sql = 'update wechat_article_task set state = 2 where id in %s' % (task_ids)
                 self._mysqldb.update(sql)
-
+            #没有待处理的数据，把还在处理中的任务取出来
             else:
                 sql = 'select id, article_url from wechat_article_task where state = 2 limit 5000'
                 tasks = self._mysqldb.find(sql)
+                #处理中也没有，把已处理过还没有达到最大更新次数额文章取出来再次爬取
+                if not tasks:
+                    starttime = datetime.datetime.now()
+                    endtime = datetime.datetime.now()
+                    starttime = starttime - datetime.timedelta(hours=self._handle_hours)
+                    endtime = endtime - datetime.timedelta(minutes=self._handle_interval_min)
+                    sql = "select id, article_url from wechat_article_task where state = 1 AND handle_count<{handle_max_count} AND creat_time > '{starttime}'  AND (last_spider_time < '{endtime}' OR last_spider_time is null)order by handle_count limit 5000"
+                    sql = sql.format(handle_max_count=self._handle_max_count,
+                                     starttime=starttime.strftime("%Y-%m-%d %H:%M:%S"),
+                                     endtime=endtime.strftime("%Y-%m-%d %H:%M:%S"))
+                    tasks = self._mysqldb.find(sql)
+
 
             if tasks:
                 task_json = [
@@ -121,7 +150,10 @@ class TaskManager():
         return task
 
     def update_article_task_state(self, sn, state=1):
-        sql = 'update wechat_article_task set state = %s where sn = "%s"' % (state, sn)
+        tools.get_current_date()
+        sql = 'update wechat_article_task set state = "{}" ,handle_count=handle_count+1, last_spider_time ="{}" where sn = "{}"'.format(
+            state, tools.get_current_date(), sn
+        )
         self._mysqldb.update(sql)
 
     def record_last_article_publish_time(self, __biz, last_publish_time):
@@ -204,7 +236,16 @@ class TaskManager():
 
         sleep_time = random.randint(self._spider_interval_min, self._spider_interval_max)
 
-        if not url:
+        #判断当前小时段是否允许执行爬虫
+        sleep_24h = str(self._sleep_24h).split("-")
+        isRunnable = True
+        if len(sleep_24h) > 1:
+            now24h = int(tools.get_current_date("%H"))
+            if  now24h >= int(sleep_24h[0]) and now24h <= int(sleep_24h[1]):
+                isRunnable = False
+                tip = '当前为 {} 点，配置 {} 不执行爬虫抓取'.format(now24h, self._sleep_24h)
+
+        if not url and isRunnable:
             account_task = self.get_account_task()
             if account_task:
                 __biz = account_task.get('__biz')
@@ -213,7 +254,7 @@ class TaskManager():
                 tip = '正在抓取列表'
                 url = 'https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz={}&scene=124#wechat_redirect'.format(__biz)
             else:
-                article_task = self.get_article_task()
+                article_task = self.get_article_task
                 if article_task:
                     tip = '正在抓取详情'
                     url = article_task.get('article_url')
@@ -227,7 +268,7 @@ class TaskManager():
                 tip=tip and tip + ' ', sleep_time=sleep_time, begin_spider_time=tools.timestamp_to_date(tools.get_current_timestamp() + sleep_time), url=url, sleep_time_msec=sleep_time * 1000
             )
         else:
-            next_page = "{tip} 休眠 {sleep_time}s 下次刷新时间 {begin_spider_time} <script>setTimeout(function(){{window.location.reload();}},{sleep_time_msec});</script>".format(
+            next_page = "{tip} 休眠 {sleep_time}s 下次刷新时间 {begin_spider_time} <script>setTimeout(function(){{window.location.href = location.href+'?time='+((new Date()).getTime());}},{sleep_time_msec});</script>".format(
                 tip=tip and tip + ' ', sleep_time=sleep_time, begin_spider_time=tools.timestamp_to_date(tools.get_current_timestamp() + sleep_time), sleep_time_msec=sleep_time * 1000
             )
 
