@@ -32,7 +32,11 @@ def save_article_list(datas: list):
         {
             "sn": article.get('sn'),
             "article_url": article.get('url'),
-            "__biz": article.get('__biz')
+            "__biz": article.get('__biz'),
+            "creat_time": tools.get_current_date(),
+            "handle_count": 0,
+            "last_spider_time": tools.get_current_date()
+
         }
         for article in datas
     ]
@@ -54,9 +58,15 @@ def save_article_dynamic(data):
     sql = tools.make_insert_sql('wechat_article_dynamic', data, insert_ignore=True)
     db.add(sql)
 
-
+'''
+修改评论保存逻辑，可重复提交，重复则忽略，新增则添加
+'''
 def save_article_commnet(datas: list):
     log.debug(tools.dumps_json(datas))
 
-    sql, datas = tools.make_batch_sql('wechat_article_comment', datas)
-    db.add_batch(sql, datas)
+    ##sql, datas = tools.make_batch_sql('wechat_article_comment', datas)
+    ##db.add_batch(sql, datas)
+
+    for data in datas:
+        sql = tools.make_insert_sql('wechat_article_comment', data, insert_ignore=True)
+        db.add(sql)

@@ -1,29 +1,40 @@
 mysqldb:
-  ip: "mariadb"
+  ip:
   port: 3306
-  db: test
-  user: root
-  passwd: "root"
-  auto_create_tables: True # 是否自动建表 建议当表不存在是设置为true，表存在是设置为false，加快软件启动速度
+  db:
+  user:
+  passwd:
+  auto_create_tables: false # 是否自动建表 建议当表不存在是设置为true，表存在是设置为false，加快软件启动速度
 
 redisdb:
-  ip: redis
-  port: 6379
+  ip:
+  port:
   db: 0
   passwd:
 
 spider:
   monitor_interval: 3600 # 公众号扫描新发布文章周期时间间隔 单位秒
-  ignore_haved_crawl_today_article_account: true # 忽略已经抓取到今日发布文章的公众号，即今日不再监测该公众号
-  redis_task_cache_root_key: wechat # reids 中缓存任务的根key 如 wechat:
-  zombie_account_not_publish_article_days: 90 # 连续90天未发布新文章，判定为僵尸账号，日后不再监控
+  #爬虫休眠的时间段，为空默认一直运行，按照24h设置例如：0-7 ，则爬虫在每天的0点到7(包含)，不执行
+  #主要是为了防止被微信识别成爬虫而被禁止
+  sleep_24h: 0-7
+  ignore_haved_crawl_today_article_account: false # 忽略已经抓取到今日发布文章的公众号，即今日不再监测该公众号
+  redis_task_cache_root_key: wechat_spider_ # reids 中缓存任务的根key 如 wechat:
+  zombie_account_not_publish_article_days: 180 # 连续180天未发布新文章，判定为僵尸账号，日后不再监控
   spider_interval:
     min_sleep_time: 5
     max_sleep_time: 10
-  no_task_sleep_time: 3600 # 当无任务时休眠时间
-  service_port: 8080 # 服务的端口
+  no_task_sleep_time: 1800 # 当无任务时休眠时间
+  service_port: 9527 # 服务的端口
   # crawl_time_range: 2019-07-10 00:00:00~2019-07-01 00:00:00 # 抓取的时间范围 若不限制最近时间可写为 ~2019-07-01 00:00:00 若想抓取全部历史则不设置
   crawl_time_range:
+  # 文章评论更新处理的时间间隔：即抓取后多少分钟内不进行更新
+  # 受 no_task_sleep_time 影响，如果no_task_sleep_time>handle_interval_min
+  # 则抓取更新需要等休眠完成才会重新触发，哪怕handle_interval_min配置的很短
+  handle_interval_min: 60
+  # handle_time_range 文章评论更新抓取的时间范围，指定每篇文章被抓取后，在多少小时内，会尝试更新其评论数据，默认:24小时
+  handle_hours: 72
+  # handle_max_count 文章评论更新抓取的时间范围，指定每篇文章被抓取后，在有效期内会尝试更新其评论数据最大次数，默认:9次
+  handle_max_count: 9
 
 log:
   level: INFO

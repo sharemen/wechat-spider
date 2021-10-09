@@ -18,6 +18,7 @@ class DealData:
         self._task_manager = TaskManager()
         self._task_manager.reset_task()
 
+
     def __parse_account_info(self, data, req_url):
         """
         @summary:
@@ -249,6 +250,7 @@ class DealData:
                         new_last_publish_time = self._task_manager.get_new_last_article_publish_time(
                             __biz
                         )
+                        #公众号为空，没有任何文章
                         if not new_last_publish_time:
                             # 标记成僵尸号
                             log.info("公众号 {} 为僵尸账号 不再监控".format(__biz))
@@ -437,7 +439,8 @@ class DealData:
         data = tools.get_json(text)
 
         __biz = tools.get_param(req_url, "__biz")
-
+        ##链接中的==被转义成了%3D%3D，需要还原回来
+        __biz = __biz.replace('%3D%3D', '==')
         comment_id = tools.get_param(req_url, "comment_id")  # 与文章关联
         elected_comment = data.get("elected_comment", [])
 
